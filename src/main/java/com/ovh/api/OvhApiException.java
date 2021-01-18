@@ -1,12 +1,12 @@
 package com.ovh.api;
 
-public class OvhApiException extends Exception {
+public class OvhApiException extends RuntimeException {
 	
 	public enum OvhApiExceptionCause {
 		CONFIG_ERROR,
 		INTERNAL_ERROR,
-		RESSOURCE_NOT_FOUND,
-		RESSOURCE_CONFLICT_ERROR,
+		RESOURCE_NOT_FOUND,
+		RESOURCE_CONFLICT_ERROR,
 		BAD_PARAMETERS_ERROR,
 		AUTH_ERROR,
 		API_ERROR;

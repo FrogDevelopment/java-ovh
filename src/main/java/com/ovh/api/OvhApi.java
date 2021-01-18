@@ -1,9 +1,9 @@
 package com.ovh.api;
 
+import lombok.RequiredArgsConstructor;
+
 import java.io.BufferedReader;
 import java.io.DataOutputStream;
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.UnsupportedEncodingException;
@@ -11,227 +11,156 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 
-import com.ovh.api.OvhApiException.OvhApiExceptionCause;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.API_ERROR;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.AUTH_ERROR;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.BAD_PARAMETERS_ERROR;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.INTERNAL_ERROR;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.RESOURCE_CONFLICT_ERROR;
+import static com.ovh.api.OvhApiException.OvhApiExceptionCause.RESOURCE_NOT_FOUND;
+import static java.net.HttpURLConnection.*;
+import static java.nio.charset.StandardCharsets.*;
 
 /**
  * Simple low level wrapper over the OVH REST API.
- * 
- * 
- * @author mbsk
  *
+ * @author mbsk
  */
+@RequiredArgsConstructor
 public class OvhApi {
-	
-	private final String endpoint;
-	private final String appKey;
-	private final String appSecret;
-	private final String consumerKey;
-	
-	private final static Map<String, String> endpoints;
-	
-	static {
-		endpoints = new HashMap<>();
-		endpoints.put("ovh-eu", "https://eu.api.ovh.com/1.0");
-		endpoints.put("ovh-ca", "https://ca.api.ovh.com/1.0");
-		endpoints.put("kimsufi-eu", "https://eu.api.kimsufi.com/1.0");
-		endpoints.put("kimsufi-ca", "https://ca.api.kimsufi.com/1.0");
-		endpoints.put("soyoustart-eu", "https://eu.api.soyoustart.com/1.0");
-		endpoints.put("soyoustart-ca", "https://ca.api.soyoustart.com/1.0");
-		endpoints.put("runabove", "https://api.runabove.com/1.0");
-		endpoints.put("runabove-ca", "https://api.runabove.com/1.0");
-	}
-	
-	public OvhApi() throws OvhApiException {
-		super();
-		
-		Map<String, String> env = System.getenv();
-		if(env.containsKey("OVH_ENDPOINT") && env.containsKey("OVH_APPLICATION_KEY") && env.containsKey("OVH_APPLICATION_SECRET") && env.containsKey("OVH_CONSUMER_KEY")) {
-			endpoint = System.getenv("OVH_ENDPOINT");
-			appKey = System.getenv("OVH_APPLICATION_KEY");
-			appSecret = System.getenv("OVH_APPLICATION_SECRET");
-			consumerKey = System.getenv("OVH_CONSUMER_KEY");
-		} else {
-			// find the config file
-			File configFile = new File("ovh.conf");
-			if(!configFile.exists()) {
-				String userHomePath = System.getProperty("user.home");
-				configFile = new File(userHomePath+"/ovh.conf");
-				if(!configFile.exists()) {
-					configFile = new File("/etc/ovh.conf");
-				}
-			} 
-			
-			if(configFile.exists()) {
-				try {
-					// read the configuration file
-					Properties config = new Properties();
-					config.load(new FileInputStream(configFile));
-					
-					// get the values
-					endpoint = config.getProperty("endpoint", null);
-					appKey = config.getProperty("application_key", null);
-					appSecret = config.getProperty("application_secret", null);
-					consumerKey = config.getProperty("consumer_key", null);
-					
-				} catch (Exception e) {
-					throw new OvhApiException(e.getMessage(), OvhApiExceptionCause.CONFIG_ERROR);
-				} 
-			} else {
-				throw new OvhApiException("environnment variables OVH_ENDPOINT, OVH_APPLICATION_KEY, OVH_APPLICATION_SECRET, OVH_CONSUMER_KEY or configuration files ./ovh.conf, ~/ovh.conf, /etc/ovh.conf were not found", OvhApiExceptionCause.CONFIG_ERROR);
-			}
-		}
-		
-	}
-	
-	public OvhApi(String endpoint, String appKey, String appSecret, String consumerKey) {		
-		this.endpoint = endpoint;
-		this.appKey = appKey;
-		this.appSecret = appSecret;
-		this.consumerKey = consumerKey;
-	}
-	
-	private void assertAllConfigNotNull() throws OvhApiException{
-		if(endpoint==null || appKey==null || appSecret==null || consumerKey==null) {
-			throw new OvhApiException("", OvhApiExceptionCause.CONFIG_ERROR);
-		}
-	}
-	
-	public String get(String path) throws OvhApiException {
-		assertAllConfigNotNull();
-		return get(path, "", true);
-	}
-	
-	public String get(String path, boolean needAuth) throws OvhApiException {
-		assertAllConfigNotNull();
-		return get(path, "", needAuth);
-	}
-	
-	public String get(String path, String body, boolean needAuth) throws OvhApiException {
-		assertAllConfigNotNull();
-		return call("GET", body, appKey, appSecret, consumerKey, endpoint, path, needAuth);
-	}
-	
-	public String put(String path, String body, boolean needAuth) throws OvhApiException {
-		assertAllConfigNotNull();
-		return call("PUT", body, appKey, appSecret, consumerKey, endpoint, path, needAuth);
-	}
-	
-	public String post(String path, String body, boolean needAuth) throws OvhApiException {
-		assertAllConfigNotNull();
-		return call("POST", body, appKey, appSecret, consumerKey, endpoint, path, needAuth);
-	}
-	
-	public String delete(String path, String body, boolean needAuth) throws OvhApiException {
-		assertAllConfigNotNull();
-		return call("DELETE", body, appKey, appSecret, consumerKey, endpoint, path, needAuth);
-	}
-	
-    private String call(String method, String body, String appKey, String appSecret, String consumerKey, String endpoint, String path, boolean needAuth) throws OvhApiException
-    {
-	
-		try {
-			String indexedEndpoint = endpoints.get(endpoint);
-			endpoint = (indexedEndpoint==null)?endpoint:indexedEndpoint;
-			
-			URL url = new URL(new StringBuilder(endpoint).append(path).toString());
 
-			// prepare 
-			HttpURLConnection request = (HttpURLConnection) url.openConnection();
-			request.setRequestMethod(method);
-			request.setReadTimeout(30000);
-			request.setConnectTimeout(30000);
-			request.setRequestProperty("Content-Type", "application/json");
-			request.setRequestProperty("X-Ovh-Application", appKey);
-			// handle authentification
-			if(needAuth) {
-				// get timestamp from local system
-				long timestamp = System.currentTimeMillis() / 1000;
+    private final static Map<String, String> ENDPOINTS_BY_NAME = Map.of(
+            "ovh-eu", "https://eu.api.ovh.com/1.0",
+            "ovh-ca", "https://ca.api.ovh.com/1.0",
+            "kimsufi-eu", "https://eu.api.kimsufi.com/1.0",
+            "kimsufi-ca", "https://ca.api.kimsufi.com/1.0",
+            "soyoustart-eu", "https://eu.api.soyoustart.com/1.0",
+            "soyoustart-ca", "https://ca.api.soyoustart.com/1.0",
+            "runabove", "https://api.runabove.com/1.0",
+            "runabove-ca", "https://api.runabove.com/1.0"
+    );
 
-				// build signature
-				String toSign = new StringBuilder(appSecret)
-									.append("+")
-									.append(consumerKey)
-									.append("+")
-									.append(method)
-									.append("+")
-									.append(url)
-									.append("+")
-									.append(body)
-									.append("+")
-									.append(timestamp)
-									.toString();
-				String signature = new StringBuilder("$1$").append(HashSHA1(toSign)).toString();
-				
-				// set HTTP headers for authentication
-				request.setRequestProperty("X-Ovh-Consumer", consumerKey);
-				request.setRequestProperty("X-Ovh-Signature", signature);
-				request.setRequestProperty("X-Ovh-Timestamp", Long.toString(timestamp));
-			}
-			
-			if(body != null && !body.isEmpty())
-            {
-				request.setDoOutput(true);
-                DataOutputStream out = new DataOutputStream(request.getOutputStream());
-                out.writeBytes(body);
-                out.flush();
-                out.close();
+    private final OvhProperties ovhProperties;
+
+    public String get(String path) throws OvhApiException {
+        return get(path, "", true);
+    }
+
+    public String get(String path, boolean needAuth) throws OvhApiException {
+        return get(path, "", needAuth);
+    }
+
+    public String get(String path, String body, boolean needAuth) throws OvhApiException {
+        return call("GET", body, path, needAuth);
+    }
+
+    public String put(String path, String body, boolean needAuth) throws OvhApiException {
+        return call("PUT", body, path, needAuth);
+    }
+
+    public String post(String path, String body, boolean needAuth) throws OvhApiException {
+        return call("POST", body, path, needAuth);
+    }
+
+    public String delete(String path, String body, boolean needAuth) throws OvhApiException {
+        return call("DELETE", body, path, needAuth);
+    }
+
+    private String call(String method, String body, String path, boolean needAuth) throws OvhApiException {
+        try {
+            var endpoint = ENDPOINTS_BY_NAME.getOrDefault(ovhProperties.getEndpoint(), ovhProperties.getEndpoint());
+
+            var url = new URL(new StringBuilder(endpoint).append(path).toString());
+
+            // prepare
+            var request = (HttpURLConnection) url.openConnection();
+            request.setRequestMethod(method);
+            request.setReadTimeout(ovhProperties.getReadTimeOut());
+            request.setConnectTimeout(ovhProperties.getConnectTimeOut());
+            request.setRequestProperty("Content-Type", "application/json");
+            request.setRequestProperty("X-Ovh-Application", ovhProperties.getApplicationKey());
+
+            // handle authentication
+            if (needAuth) {
+                addAuthenticationHeaders(request, method, url, body);
             }
-			
-			
-			String inputLine;
-			BufferedReader in;
-			int responseCode = request.getResponseCode();
-			if (responseCode == 200) {
-				in = new BufferedReader(new InputStreamReader(request.getInputStream()));
-			} else {
-				in = new BufferedReader(new InputStreamReader(request.getErrorStream()));
-			}
-			
-			// build response
-			StringBuilder response = new StringBuilder();
-			while ((inputLine = in.readLine()) != null) {
-				response.append(inputLine);
-			}
-			in.close();
-			
-			if(responseCode == 200) {
-				// return the raw JSON result
-				return response.toString();
-			} else if(responseCode == 400) {
-				throw new OvhApiException(response.toString(), OvhApiExceptionCause.BAD_PARAMETERS_ERROR);
-			} else if (responseCode == 403) {
-				throw new OvhApiException(response.toString(), OvhApiExceptionCause.AUTH_ERROR);
-			} else if (responseCode == 404) {
-				throw new OvhApiException(response.toString(), OvhApiExceptionCause.RESSOURCE_NOT_FOUND);
-			} else if (responseCode == 409) {
-				throw new OvhApiException(response.toString(), OvhApiExceptionCause.RESSOURCE_CONFLICT_ERROR);
-			} else {
-				throw new OvhApiException(response.toString(), OvhApiExceptionCause.API_ERROR);
-			}
-			
-		} catch (NoSuchAlgorithmException e) {
-			throw new OvhApiException(e.getMessage(), OvhApiExceptionCause.INTERNAL_ERROR);
-		} catch (IOException e) {
-			throw new OvhApiException(e.getMessage(), OvhApiExceptionCause.INTERNAL_ERROR);
-		}
 
-	}
-	
-	public static String HashSHA1(String text) throws NoSuchAlgorithmException, UnsupportedEncodingException {
-	    MessageDigest md;
-        md = MessageDigest.getInstance("SHA-1");
-        byte[] sha1hash = new byte[40];
-        md.update(text.getBytes("iso-8859-1"), 0, text.length());
+            if (body != null && !body.isEmpty()) {
+                request.setDoOutput(true);
+                try (var out = new DataOutputStream(request.getOutputStream())) {
+                    out.writeBytes(body);
+                    out.flush();
+                }
+            }
+
+            var responseCode = request.getResponseCode();
+            BufferedReader in;
+            if (responseCode == HTTP_OK) {
+                in = new BufferedReader(new InputStreamReader(request.getInputStream()));
+            } else {
+                in = new BufferedReader(new InputStreamReader(request.getErrorStream()));
+            }
+
+            // build response
+            var response = new StringBuilder();
+            try (in) {
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+            }
+
+            // return the raw JSON result
+            return switch (responseCode) {
+                case HTTP_OK -> response.toString();
+                case HTTP_BAD_REQUEST -> throw new OvhApiException(response.toString(), BAD_PARAMETERS_ERROR);
+                case HTTP_FORBIDDEN -> throw new OvhApiException(response.toString(), AUTH_ERROR);
+                case HTTP_NOT_FOUND -> throw new OvhApiException(response.toString(), RESOURCE_NOT_FOUND);
+                case HTTP_CONFLICT -> throw new OvhApiException(response.toString(), RESOURCE_CONFLICT_ERROR);
+                default -> throw new OvhApiException(response.toString(), API_ERROR);
+            };
+
+        } catch (NoSuchAlgorithmException | IOException e) {
+            throw new OvhApiException(e.getMessage(), INTERNAL_ERROR);
+        }
+    }
+
+    private void addAuthenticationHeaders(HttpURLConnection request, String method, URL url, String body) throws NoSuchAlgorithmException, UnsupportedEncodingException {
+        // get timestamp from local system
+        var timestamp = System.currentTimeMillis() / 1000;
+
+        // set HTTP headers for authentication
+        request.setRequestProperty("X-Ovh-Consumer", ovhProperties.getConsumerKey());
+        request.setRequestProperty("X-Ovh-Timestamp", Long.toString(timestamp));
+
+        // build signature
+        var toSign = new StringBuilder(ovhProperties.getApplicationSecret())
+                .append("+")
+                .append(ovhProperties.getConsumerKey())
+                .append("+")
+                .append(method)
+                .append("+")
+                .append(url)
+                .append("+")
+                .append(body)
+                .append("+")
+                .append(timestamp)
+                .toString();
+        var signature = new StringBuilder("$1$").append(hashSHA1(toSign)).toString();
+        request.setRequestProperty("X-Ovh-Signature", signature);
+    }
+
+    private static String hashSHA1(String text) throws NoSuchAlgorithmException {
+        var md = MessageDigest.getInstance("SHA-1");
+        var sha1hash = new byte[40];
+        md.update(text.getBytes(ISO_8859_1), 0, text.length());
         sha1hash = md.digest();
-        StringBuffer sb = new StringBuffer();
-        for (int i = 0; i < sha1hash.length; i++) {
-            sb.append(Integer.toString((sha1hash[i] & 0xff) + 0x100, 16).substring(1));
+        var sb = new StringBuilder();
+        for (var hash : sha1hash) {
+            sb.append(Integer.toString((hash & 0xff) + 0x100, 16).substring(1));
         }
         return sb.toString();
-	}
+    }
 
 }
